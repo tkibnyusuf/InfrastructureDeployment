@@ -1,26 +1,45 @@
 pipeline {
-    agent any
-    environment {
-        AWS_ACCOUNT_ID = credentials('account_id')
-        AWS_DEFAULT_REGION="us-east-1"     
+  agent {
+    // Use docker agent with official terraform image (no terraform install needed on node)
+    docker { image 'hashicorp/terraform:light' }
+  }
+  environment {
+    AWS_DEFAULT_REGION = 'us-east-1'
+  }
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
     }
-        
-    stages {
-        stage('Infrastructure Deployment') {
-           environment {
-             AWS_ACCESS_KEY_ID = credentials('aws_access_key_id')
-             AWS_SECRET_ACCESS_KEY = credentials('aws_secret_access_key')
-           }
-           steps {
-              script {
-                  sh "terraform init"
-                  sh "terraform validate"
-                  sh "terraform plan"
-                  sh "terraform ${action} --auto-approve"
-            }
-        }
-               
-     }
+
+    stage('Terraform Init') {
+      steps {
+        // If using AWS credentials stored in Jenkins, uncomment and use withCredentials() (see note below)
+        sh '''
+          terraform init -reconfigure
+        '''
+      }
     }
-    
+
+    stage('Terraform Plan') {
+      steps {
+        sh '''
+          terraform plan -out=tfplan
+        '''
+      }
+    }
+
+    stage('Terraform Apply') {
+      steps {
+        input message: "Apply Terraform changes?"
+        sh '''
+          terraform apply -auto-approve tfplan
+        '''
+      }
+    }
+  }
+  post {
+    always {
+      sh 'terraform version || true'
+    }
+  }
 }
