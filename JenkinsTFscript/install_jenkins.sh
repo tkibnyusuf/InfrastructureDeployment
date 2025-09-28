@@ -1,19 +1,55 @@
-#!/bin/sh
-sudo apt update
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 63667EE74BBA1F0A08A698725BA31D57EF5975CA
-wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo apt-key add -
-sudo sh -c 'echo deb http://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'
-sudo apt update
-sudo apt install openjdk-17-jre-headless -y
-sudo apt install ca-certificates
-sudo apt update
-sudo apt install jenkins -y
-sudo apt-get update -y
-sudo apt-get update && sudo apt-get install -y gpg wget
-wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(. /etc/os-release; echo $VERSION_CODENAME) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null
-sudo apt-get update && sudo apt-get install -y terraform
-terraform -version
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---- Java 17 (user-space via SDKMAN) ----
+if ! command -v java >/dev/null 2>&1; then
+  curl -s "https://get.sdkman.io" | bash
+  source "$HOME/.sdkman/bin/sdkman-init.sh"
+  yes | sdk install java 17.0.12-tem >/dev/null
+fi
+java -version
+
+# ---- Jenkins (user-mode) ----
+export JENKINS_HOME="$HOME/jenkins_home"
+mkdir -p "$JENKINS_HOME"
+[ -f "$HOME/jenkins.war" ] || curl -L -o "$HOME/jenkins.war" https://get.jenkins.io/war-stable/latest/jenkins.war
+
+# Bind to localhost for safety (use SSH tunnel to access)
+J_ADDR=127.0.0.1
+J_PORT=8080
+pgrep -f 'jenkins\.war' >/dev/null || nohup java -jar "$HOME/jenkins.war" --httpPort=$J_PORT --httpListenAddress=$J_ADDR > "$HOME/jenkins.log" 2>&1 &
+
+echo "Waiting for Jenkins initial admin password..."
+for i in {1..90}; do
+  [ -f "$JENKINS_HOME/secrets/initialAdminPassword" ] && break
+  sleep 2
+done
+
+if [ -f "$JENKINS_HOME/secrets/initialAdminPassword" ]; then
+  echo "JENKINS_INITIAL_ADMIN_PASSWORD: $(cat "$JENKINS_HOME/secrets/initialAdminPassword")"
+else
+  echo "Still generating… check log: tail -n 200 $HOME/jenkins.log"
+fi
+echo "Open Jenkins via SSH tunnel: ssh -N -L 8080:127.0.0.1:8080 <user>@<server>  ->  http://localhost:8080"
+
+# ---- Terraform (user-space to ~/bin) ----
+VER=1.9.5
+ARCH=$(dpkg --print-architecture)          # amd64 or arm64
+TF_ZIP=/tmp/terraform.zip
+mkdir -p "$HOME/bin"
+curl -fsSL -o "$TF_ZIP" "https://releases.hashicorp.com/terraform/${VER}/terraform_${VER}_linux_${ARCH}.zip"
+if command -v unzip >/dev/null 2>&1; then
+  unzip -o "$TF_ZIP" -d "$HOME/bin"
+else
+  python3 - <<'PY'
+import zipfile, os
+zipfile.ZipFile('/tmp/terraform.zip').extractall(os.path.expanduser('~/bin'))
+PY
+fi
+echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
+export PATH="$HOME/bin:$PATH"
+terraform -version || true
+
 echo 'clearing screen...' && sleep 5
 clear
 echo 'jenkins is installed'
