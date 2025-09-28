@@ -5,6 +5,7 @@ pipeline {
         AWS_DEFAULT_REGION="us-east-1"     
     } 
     stages {
+
         stage('Infrastructure Deployment') {
            environment {
              AWS_ACCESS_KEY_ID = credentials('aws_access_key_id')
@@ -21,5 +22,4 @@ pipeline {
                
      }
     }
-    
 }
