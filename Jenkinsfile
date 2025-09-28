@@ -18,13 +18,14 @@ pipeline {
         sh '''#!/usr/bin/env bash
 set -euo pipefail
 
-# Install AWS CLI locally if missing (no sudo)
+# Install AWS CLI locally if missing (no sudo, no unzip needed)
 if ! command -v aws >/dev/null 2>&1; then
-  ARCH=$(uname -m)
-  [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ] && ARCH_ARCH=x86_64 || ARCH_ARCH=aarch64
+  ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ] && ARCH_ARCH=x86_64 || ARCH_ARCH=aarch64
   curl -sSLo awscliv2.zip "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH_ARCH}.zip"
   rm -rf aws "$WORKSPACE/aws-cli" "$WORKSPACE/bin"
-  unzip -q awscliv2.zip
+  python3 - <<'PY'
+import zipfile; zipfile.ZipFile('awscliv2.zip').extractall('.')
+PY
   ./aws/install -i "$WORKSPACE/aws-cli" -b "$WORKSPACE/bin"
   export PATH="$WORKSPACE/bin:$PATH"
 fi
@@ -37,10 +38,7 @@ terraform init -input=false -reconfigure \
   -backend-config="bucket=adedeji-jenkins" \
   -backend-config="key=newresource.tfstate" \
   -backend-config="region=${AWS_DEFAULT_REGION}"
-
-terraform validate
-terraform plan -input=false -no-color
-terraform ${ACTION} -input=false --auto-approve
+terraform apply -input=false --auto-approve
 '''
       }
     }
